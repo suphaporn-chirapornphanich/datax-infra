@@ -1,0 +1,67 @@
+name: Terraform Check
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/terraform-check.yaml"
+      - "terraform/environments/**"
+
+jobs:
+  # ------------------------
+  generate_matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      terraform-dir: ${{ steps.generate-matrix.outputs.terraform-dir }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate Matrix
+        id: generate-matrix
+        run: |
+          parnet_dir=terraform/environments
+          terraform_dirs_json=$(find $parnet_dir -type f -name "provider.tf" -exec dirname {} \; | sort | uniq | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "terraform-dir=${terraform_dirs_json}" >> $GITHUB_OUTPUT
+
+  # ------------------------
+  terraform_check:
+    runs-on: ubuntu-latest
+    needs:
+      - generate_matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        terraform-dir: ${{ fromJSON(needs.generate_matrix.outputs.terraform-dir) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Matrix => (${{ matrix.terraform-dir }})
+        run: |
+          echo ${{ matrix.terraform-dir }}
+
+      - name: Run trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-ref: ${{ matrix.terraform-dir }}
+          scan-type: 'config'
+          ignore-unfixed: true
+          severity: "CRITICAL,HIGH,MEDIUM"
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+        continue-on-error: true
+
+      - name: Terraform fmt
+        id: fmt
+        run: |
+          cd ${{ matrix.terraform-dir }} \
+          && terraform fmt -check
+        continue-on-error: false

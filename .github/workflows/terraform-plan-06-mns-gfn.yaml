@@ -1,0 +1,138 @@
+name: Terraform Plan - 06-MNS-GFN
+
+on:
+  pull_request:
+    # paths:
+    #   - "terraform/environments/prd/datax/dop/06-mns-gfn/**"
+
+env:
+  TF_VERSION: 1.13.3
+  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+  ARM_TENANT_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_TENANT_ID }}
+  TF_VAR_grafana_auth: ${{ secrets.TF_VAR_GRAFANA_AUTH }}
+
+jobs:
+  terraform-plan:
+    runs-on: aks-common-prd
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Run Terraform Plan
+        id: terraform
+        working-directory: terraform/environments/prd/datax/dop/06-mns-gfn
+        run: |
+          echo "Running Terraform plan for 06-mns-gfn"
+          make plan
+
+      - name: Capture Plan Output
+        if: steps.terraform.outcome == 'success'
+        id: plan
+        working-directory: terraform/environments/prd/datax/dop/06-mns-gfn
+        run: |
+          # Create a plan file for output capture
+          terraform plan \
+            -var-file=<(cat ../../../../../../terraform/config/prd/datax/management.tfvars) \
+            -var-file="override.tfvars" \
+            -no-color \
+            -out=terraform.tfplan
+
+          # Show the plan in text format
+          terraform show -no-color terraform.tfplan > plan.txt
+
+          # Capture the plan output for PR comment
+          echo "plan<<EOF" >> $GITHUB_OUTPUT
+          cat plan.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Generate Plan JSON for Security Scanning
+        if: steps.terraform.outcome == 'success'
+        working-directory: terraform/environments/prd/datax/dop/06-mns-gfn
+        run: |
+          terraform show -json terraform.tfplan > terraform.tfplan.json
+
+      - name: CheckOV - Code scan
+        if: steps.terraform.outcome == 'success'
+        id: checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          file: terraform/environments/prd/datax/dop/06-mns-gfn/terraform.tfplan.json
+          framework: terraform_plan
+          skip_check: CKV_GIT_5
+          soft_fail: true
+          output_format: cli,sarif
+          output_file_path: console,checkov-results-06-mns-gfn.sarif
+
+      - name: Upload checkov SARIF file
+        uses: github/codeql-action/upload-sarif@v3
+        if: steps.terraform.outcome == 'success' && steps.checkov.outcome == 'success'
+        with:
+          sarif_file: checkov-results-06-mns-gfn.sarif
+          category: checkov-06-mns-gfn
+        continue-on-error: true
+
+      - name: Trivy - Code scan
+        if: steps.terraform.outcome == 'success'
+        id: trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: terraform/environments/prd/datax/dop/06-mns-gfn/terraform.tfplan.json
+          format: sarif
+          output: trivy-06-mns-gfn.sarif
+          exit-code: '0'  # Don't fail the workflow on security findings
+          severity: CRITICAL,HIGH
+          scanners: vuln,secret,misconfig,license
+        continue-on-error: true
+
+      - name: Upload Trivy SARIF file
+        uses: github/codeql-action/upload-sarif@v3
+        if: steps.terraform.outcome == 'success' && steps.trivy.outcome == 'success'
+        with:
+          sarif_file: trivy-06-mns-gfn.sarif
+          category: trivy-06-mns-gfn
+        continue-on-error: true
+
+      - name: PR comment - Auto (Pull Request)
+        if: steps.terraform.outcome == 'success' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const output = `### 🏗️ Terraform Plan: 06-MNS-GFN (Production) 📖
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`terraform
+            ${{ steps.plan.outputs.plan }}
+            \`\`\`
+
+            </details>
+
+            **📊 Security Scans:**
+            - ✅ CheckOV scan completed
+            - ✅ Trivy scan completed
+
+            > Results uploaded to GitHub Security tab
+
+            *Pusher: @${{ github.actor }}, Action: \`pull_request\`, Workflow: \`${{ github.workflow }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })

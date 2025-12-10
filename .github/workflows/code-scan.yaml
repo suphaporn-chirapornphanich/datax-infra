@@ -1,19 +1,53 @@
-Title: Use Unix-style line endings
+name: Call reusable workflow CodeQL Scan python
+on:
+  workflow_dispatch:
+    inputs:
+      language:
+        description: 'support language [python, dotnet, csharp, go, javascript, java, terraform]'
+        required: true
+        type: choice
+        options:
+        - python
+        - dotnet
+        - csharp
+        - go
+        - javascript
+        - java
+        - terraform
+      path:
+        description: 'directory'
+        default: "./"
+        required: true
+        type: string
+      skip_auto_build:
+        description: 'yes/no for skip auto build'
+        default: "no"
+        required: false
+        type: string
 
-Description: Ensure all files use Unix-style line endings (`LF`) as specified in `.editorconfig`.
+jobs:
+  call-workflow-scan-code:
+    strategy:
+      fail-fast: false
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    if: ${{ inputs.language != 'terraform' }}
+    uses: dataxai/template-codeql/.github/workflows/reuseable-scan-code.yaml@main
+    with:
+      language: ${{ inputs.language }}
+      path: ${{ inputs.path }}
+      # skip_auto_build: ${{ inputs.skip_auto_build }}
 
-Path patterns: **/*
+  call-workflow-scan-iac:
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    if: ${{ inputs.language == 'terraform' }}
+    uses: dataxai/template-codeql/.github/workflows/reuseable-scan-iac-code.yaml@main
+    with:
+      path: ${{ inputs.path }}
 
----
-
-Title: Remove trailing whitespace
-
-Description: Remove trailing whitespace in all files to maintain clean code formatting.
-
-Path patterns: **/*
-
----
-
-Title: Ensure final newline
-
-Description: Ensure every file ends with a newline as specified in `.editorconfig`.
+      /Users/s101590/Desktop/workspace/Git/datax-infra/.github/workflows/code-scan.yaml

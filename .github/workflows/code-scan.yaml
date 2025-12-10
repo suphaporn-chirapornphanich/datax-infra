@@ -1,0 +1,19 @@
+Title: Use Unix-style line endings
+
+Description: Ensure all files use Unix-style line endings (`LF`) as specified in `.editorconfig`.
+
+Path patterns: **/*
+
+---
+
+Title: Remove trailing whitespace
+
+Description: Remove trailing whitespace in all files to maintain clean code formatting.
+
+Path patterns: **/*
+
+---
+
+Title: Ensure final newline
+
+Description: Ensure every file ends with a newline as specified in `.editorconfig`.

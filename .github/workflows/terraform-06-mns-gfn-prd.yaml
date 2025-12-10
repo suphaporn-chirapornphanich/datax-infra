@@ -1,0 +1,76 @@
+name: Terraform 06-MNS-GFN Production Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to deploy (e.g., branch or v1.0.0)"
+        required: true
+        default: "main"
+        type: string
+      action:
+        description: "Terraform action to perform"
+        required: true
+        default: "plan"
+        type: choice
+        options:
+          - plan
+          - apply
+
+env:
+  TF_VERSION: 1.13.3
+  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+  ARM_TENANT_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_TENANT_ID }}
+  TF_VAR_grafana_auth: ${{ secrets.TF_VAR_GRAFANA_AUTH }}
+
+jobs:
+  terraform-plan:
+    if: inputs.action == 'plan'
+    runs-on: aks-common-prd
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Run Terraform Plan
+        working-directory: terraform/environments/prd/datax/dop/06-mns-gfn
+        run: |
+          echo "Running Terraform plan for 06-mns-gfn production deployment"
+          make plan
+
+  terraform-apply:
+    if: inputs.action == 'apply'
+    runs-on: aks-common-prd
+    environment: production
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Run Terraform Apply
+        working-directory: terraform/environments/prd/datax/dop/06-mns-gfn
+        run: |
+          echo "Running Terraform apply for 06-mns-gfn production deployment"
+          make apply-auto
